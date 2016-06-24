@@ -21,6 +21,7 @@ int timeout = 5000;
 void usage(char* argv) {
 	printf("usage: %s [OPTIONS] [/dev/cu.*]\n",argv);
 	printf("Options:\n\n-a [X/Y/Z] [0-150]\tassign the coordinate of an axis\n");
+	printf("-d\t\t\tset Z axis to home\n");
 	printf("-l\t\t\tlist all items on SD Card (if present)\n");
 	printf("-r\t\t\trestart printer\n");
 	printf("-s\t\t\topen a serial shell\n");
@@ -74,6 +75,20 @@ int restartPrinter(int fd, char* buf) {
 	printf("%s",buf);
 	return 0;
 }
+
+int goHome(int fd, char* buf) {
+	int n;
+	char* cmd[] = { "G92 Z 200\n", "G1 Z 2\n", "G92 Z 0\n" };
+	for( int i = 0; i < 3; i++){
+		n = serial_write(fd,cmd[i]);
+		if(n != 0) {
+			return -1;
+		}
+		serial_read_until(fd,buf,'\n',buf_max,timeout);
+		printf("%s",buf);
+	}
+	return 0;
+}
 int main(int argc, char* argv[]) {
 	int opt = 0;
 	int fd = -1;
@@ -82,7 +97,7 @@ int main(int argc, char* argv[]) {
 	char* readstr;
 	char buf[buf_max];
 
-	if(argc <= 1) {
+	if(argc <= 2) {
 		usage(argv[0]);
 		return -1;
 	}
@@ -104,7 +119,7 @@ int main(int argc, char* argv[]) {
 	serial_flush(fd);
 	memset(buf,0,buf_max);
 	// now we have a connection to the serial device (probably printer in this case)
-	while ((opt = getopt(argc,argv,"alrs:")) != -1) {
+	while ((opt = getopt(argc,argv,"adlrs:")) != -1) {
 		switch(opt) {
 			case 'a':
 				if(argc <= 4) {
@@ -113,6 +128,9 @@ int main(int argc, char* argv[]) {
 					break;
 				}
 				assignCoordinate(fd,buf,argv[3],argv[4]);
+				break;
+			case 'd':
+				goHome(fd,buf);
 				break;
 			case 'l':
 				listSD(fd,buf);
