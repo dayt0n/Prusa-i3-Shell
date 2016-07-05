@@ -49,7 +49,7 @@ int assignCoordinate(int fd, char* buf, char* plane, char* coordinate) {
 		return -1;
 	serial_read_until(fd,buf,'\n',buf_max,timeout);
 	//printf("%s",buf);
-	if(strcmp("ok",buf) == 0)
+	if(strcmp("ok\n",buf) == 0 || strcmp("echo:SD init fail\n",buf) == 0)
 		printf("%s axis set to %s\n",plane,coordinate);
 	else
 		printf("failed to set axis\n");
@@ -78,17 +78,67 @@ int restartPrinter(int fd, char* buf) {
 
 int goHome(int fd, char* buf) {
 	int n;
-	char* cmd[] = { "G92 Z 200\n", "G1 Z 2\n", "G92 Z 0\n" };
+	printf("Setting speed...\n");
+	char* speedcmd[] = { "M220 S400\n", "M220 S100\n" };
+	n = serial_write(fd,speedcmd[0]);
+	if(n != 0) {
+		return -1;
+	}
+	printf("Sending X, Y, and Z home...\n");
+	char* Ycmd[] = { "G92 Y 300\n", "G1 Y 2\n", "G92 Y 0\n" };
 	for( int i = 0; i < 3; i++){
-		n = serial_write(fd,cmd[i]);
+		n = serial_write(fd,Ycmd[i]);
 		if(n != 0) {
 			return -1;
 		}
 		serial_read_until(fd,buf,'\n',buf_max,timeout);
 		printf("%s",buf);
 	}
+
+	char* Xcmd[] = { "G92 X 0\n", "G1 X 200\n", "G1 X-210\n", "G92 X 0\n" };
+	for( int i = 0; i < 4; i++) {
+		n = serial_write(fd,Xcmd[i]);
+		if(n != 0) {
+			return -1;
+		}
+		serial_read_until(fd,buf,'\n',buf_max,timeout);
+		printf("%s",buf);
+	}
+	
+	char* Zcmd[] = { "G92 Z 200\n", "G1 Z 2\n", "G92 Z 0\n" };
+	for( int i = 0; i < 3; i++){
+		n = serial_write(fd,Zcmd[i]);
+		if(n != 0) {
+			return -1;
+		}
+		serial_read_until(fd,buf,'\n',buf_max,timeout);
+		printf("%s",buf);
+	}
+	printf("Setting to default speed...\n");
+	n = serial_write(fd,speedcmd[1]);
+	if(n != 0) {
+		return -1;
+	}
 	return 0;
 }
+
+void printOutput(int fd, char* buf) {
+	int n;
+	n = serial_read_until(fd,buf,'\n',buf_max,0);
+	printf("%s",buf);
+}
+
+int beginShell(int fd, char* buf) {
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	printOutput(fd,buf);
+	return 0;
+}
+
 int main(int argc, char* argv[]) {
 	int opt = 0;
 	int fd = -1;
@@ -140,12 +190,18 @@ int main(int argc, char* argv[]) {
 				break;
 			case 's':
 				// looping shell
+				beginShell(fd,buf);
 				while(1) {
+					beginloop:
 					printf("Prusa> ");
 					fgets(read,sizeof(read),stdin);
 					readstr = read;
 					if(strcmp("/exit\n",readstr) == 0) {
 						break;
+					}
+					if(strcmp("/home\n",readstr) == 0) {
+						goHome(fd,buf);
+						goto beginloop;
 					}
 					int n = serial_write(fd,readstr);
 					if (n != 0)
