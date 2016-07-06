@@ -36,6 +36,36 @@ char* addVars(char *s1, char *s2)
     return result;
 }
 
+int findTrigger(int fd, char* buf, char* axis) {
+	int n = serial_write(fd,"M119\n");
+	if(n != 0) {
+		return -1;
+	}
+	char* max = addVars(axis,"_max: ");
+	char* min = addVars(axis,"_min: ");
+	char* maxOpen = addVars(max,"open");
+	char* minOpen = addVars(min,"open");
+	serial_read_until(fd,buf,'Q',buf_max,timeout);
+	char* maxstr = strstr(buf,max);
+	char* minstr = strstr(buf,min);
+	minstr[strlen(minstr) - (strlen(minstr) - 11)] = 0;
+	maxstr[strlen(maxstr) - (strlen(maxstr) - 11)] = 0;
+	printf("MAX: %s\nMIN: %s\n",maxstr,minstr);
+	if(strcmp(maxOpen,maxstr) != 0) {
+		//printf("%s triggered on maximum\n",axis);
+		return 0;
+	}
+	else if(strcmp(minOpen,minstr) != 0) {
+		//printf("%s triggered on minimum\n",axis);
+		return 0;
+	}
+	else {
+		//printf("%s is not triggered at all\n",axis);
+		return -1;
+	}
+	return -2;
+}
+
 /* this doesn't move the axis at all, it just tells the printer new coordinates 
  and you decide the stopping points */
 int assignCoordinate(int fd, char* buf, char* plane, char* coordinate) {
@@ -78,6 +108,7 @@ int restartPrinter(int fd, char* buf) {
 
 int goHome(int fd, char* buf) {
 	int n;
+	int f;
 	printf("Setting speed...\n");
 	char* speedcmd[] = { "M220 S400\n", "M220 S100\n" };
 	n = serial_write(fd,speedcmd[0]);
@@ -86,33 +117,60 @@ int goHome(int fd, char* buf) {
 	}
 	printf("Sending X, Y, and Z home...\n");
 	char* Ycmd[] = { "G92 Y 300\n", "G1 Y 2\n", "G92 Y 0\n" };
-	for( int i = 0; i < 3; i++){
+	for( int i = 0; i < 2; i++){
 		n = serial_write(fd,Ycmd[i]);
 		if(n != 0) {
 			return -1;
 		}
-		serial_read_until(fd,buf,'\n',buf_max,timeout);
-		printf("%s",buf);
+		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//printf("%s",buf);
+	}
+	f = findTrigger(fd,buf,"y");
+	if(f != 0) {
+		for( int i = 0; i < 3; i++){
+			n = serial_write(fd,Ycmd[i]);
+			if(n != 0) {
+				return -1;
+			}
+		}
 	}
 
-	char* Xcmd[] = { "G92 X 0\n", "G1 X 200\n", "G1 X-210\n", "G92 X 0\n" };
-	for( int i = 0; i < 4; i++) {
+	char* Xcmd[] = { "G92 X 0\n", "G1 X 300\n", "G1 X-210\n", "G92 X 0\n" };
+	for( int i = 0; i < 2; i++) {
 		n = serial_write(fd,Xcmd[i]);
 		if(n != 0) {
 			return -1;
 		}
-		serial_read_until(fd,buf,'\n',buf_max,timeout);
-		printf("%s",buf);
+		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//printf("%s",buf);
+	}
+	f = findTrigger(fd,buf,"x");
+	if(f != 0) {
+		for( int i = 0; i < 4; i++){
+			n = serial_write(fd,Xcmd[i]);
+			if(n != 0) {
+				return -1;
+			}
+		}
 	}
 	
-	char* Zcmd[] = { "G92 Z 200\n", "G1 Z 2\n", "G92 Z 0\n" };
-	for( int i = 0; i < 3; i++){
+	char* Zcmd[] = { "G92 Z 300\n", "G1 Z 2\n", "G92 Z 0\n" };
+	for( int i = 0; i < 2; i++){
 		n = serial_write(fd,Zcmd[i]);
 		if(n != 0) {
 			return -1;
 		}
-		serial_read_until(fd,buf,'\n',buf_max,timeout);
-		printf("%s",buf);
+		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//printf("%s",buf);
+	}
+	f = findTrigger(fd,buf,"z");
+	if(f != 0) {
+		for( int i = 0; i < 3; i++){
+			n = serial_write(fd,Zcmd[i]);
+			if(n != 0) {
+				return -1;
+			}
+		}
 	}
 	printf("Setting to default speed...\n");
 	n = serial_write(fd,speedcmd[1]);
@@ -169,7 +227,7 @@ int main(int argc, char* argv[]) {
 	serial_flush(fd);
 	memset(buf,0,buf_max);
 	// now we have a connection to the serial device (probably printer in this case)
-	while ((opt = getopt(argc,argv,"adlrs:")) != -1) {
+	while ((opt = getopt(argc,argv,"adlprs:")) != -1) {
 		switch(opt) {
 			case 'a':
 				if(argc <= 4) {
@@ -184,6 +242,9 @@ int main(int argc, char* argv[]) {
 				break;
 			case 'l':
 				listSD(fd,buf);
+				break;
+			case 'p':
+				findTrigger(fd,buf,argv[3]);
 				break;
 			case 'r':
 				restartPrinter(fd,buf);
