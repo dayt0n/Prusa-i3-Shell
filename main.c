@@ -13,16 +13,26 @@
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <ctype.h>
+//#include <curses.h>
 #include "serial_functions.h"
 
 int buf_max = 256;
-int timeout = 5000;
+int timeoutz = 5000;
+
+int check(int fd,int n) {
+	if (n != 0) {
+		serial_close(fd);
+	}
+	return -1;
+}
 
 void usage(char* argv) {
 	printf("usage: %s [OPTIONS] [/dev/cu.*]\n",argv);
 	printf("Options:\n\n-a [X/Y/Z] [0-150]\tassign the coordinate of an axis\n");
-	printf("-d\t\t\tset Z axis to home\n");
+	printf("-d\t\t\tset axis to home\n");
+	printf("-f\t\t\tswitch filament\n");
 	printf("-l\t\t\tlist all items on SD Card (if present)\n");
+	printf("-p [X/Y/Z]\t\ttest to see which endstops are triggered\n");
 	printf("-r\t\t\trestart printer\n");
 	printf("-s\t\t\topen a serial shell\n");
 }
@@ -45,18 +55,14 @@ int findTrigger(int fd, char* buf, char* axis) {
 	char* min = addVars(axis,"_min: ");
 	char* maxOpen = addVars(max,"open");
 	char* minOpen = addVars(min,"open");
-	serial_read_until(fd,buf,'Q',buf_max,timeout);
+	serial_read_until(fd,buf,'Q',buf_max,timeoutz);
 	char* maxstr = strstr(buf,max);
 	char* minstr = strstr(buf,min);
 	minstr[strlen(minstr) - (strlen(minstr) - 11)] = 0;
 	maxstr[strlen(maxstr) - (strlen(maxstr) - 11)] = 0;
-	printf("MAX: %s\nMIN: %s\n",maxstr,minstr);
-	if(strcmp(maxOpen,maxstr) != 0) {
-		//printf("%s triggered on maximum\n",axis);
-		return 0;
-	}
-	else if(strcmp(minOpen,minstr) != 0) {
-		//printf("%s triggered on minimum\n",axis);
+	//printf("MAX: %s\nMIN: %s\n",maxstr,minstr);
+	if(strcmp(maxOpen,maxstr) != 0 || strcmp(minOpen,minstr) != 0) {
+		printf("%s endstop hit\n",axis);
 		return 0;
 	}
 	else {
@@ -77,7 +83,7 @@ int assignCoordinate(int fd, char* buf, char* plane, char* coordinate) {
 	int n = serial_write(fd,cmd);
 	if(n != 0)
 		return -1;
-	serial_read_until(fd,buf,'\n',buf_max,timeout);
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 	//printf("%s",buf);
 	if(strcmp("ok\n",buf) == 0 || strcmp("echo:SD init fail\n",buf) == 0)
 		printf("%s axis set to %s\n",plane,coordinate);
@@ -91,7 +97,7 @@ int listSD(int fd, char* buf) {
 	int n = serial_write(fd,cmd);
 	if(n != 0)
 		return -1;
-	serial_read_until(fd,buf,'\n',buf_max,timeout);
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 	printf("%s",buf);
 	return 0;
 }
@@ -101,7 +107,7 @@ int restartPrinter(int fd, char* buf) {
 	int n = serial_write(fd,cmd);
 	if(n != 0) 
 		return -1;
-	serial_read_until(fd,buf,'\n',buf_max,timeout);
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 	printf("%s",buf);
 	return 0;
 }
@@ -122,7 +128,7 @@ int goHome(int fd, char* buf) {
 		if(n != 0) {
 			return -1;
 		}
-		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 		//printf("%s",buf);
 	}
 	f = findTrigger(fd,buf,"y");
@@ -141,7 +147,7 @@ int goHome(int fd, char* buf) {
 		if(n != 0) {
 			return -1;
 		}
-		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 		//printf("%s",buf);
 	}
 	f = findTrigger(fd,buf,"x");
@@ -160,7 +166,7 @@ int goHome(int fd, char* buf) {
 		if(n != 0) {
 			return -1;
 		}
-		//serial_read_until(fd,buf,'\n',buf_max,timeout);
+		//serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 		//printf("%s",buf);
 	}
 	f = findTrigger(fd,buf,"z");
@@ -180,19 +186,72 @@ int goHome(int fd, char* buf) {
 	return 0;
 }
 
+int getExtruderTemp(int fd,char*buf) {
+	int n = 0;
+	int ret = 0;
+	n = serial_write(fd,"M105 X0\n");
+	check(fd,n);
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz);
+	serial_read_until(fd,buf,'/',buf_max,timeoutz);
+	char* newbuf = strstr(buf,":");
+	newbuf++;
+	char* newnewbuf = strchr(newbuf,'.');
+	*newnewbuf = 0;
+	ret = atoi(newbuf);
+	return ret;
+}
+int cooldown(int fd) {
+	int n = 0;
+	n = serial_write(fd,"M104 S0\n");
+	check(fd,n);
+	n = serial_write(fd,"M140 S0\n");
+	check(fd,n);
+	return 0;
+}
+
+int switchFilament(int fd, char* buf) {
+	int n = 0;
+	printf("Please begin by cutting off the filament at the very top of the extrusion motor, then press [Enter]\n");
+	getchar();
+	printf("Heating to 230 Celcius...\n");
+	int temp = getExtruderTemp(fd,buf);
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz);
+	n = serial_write(fd,"M104 S230\n");
+	check(fd,n);
+	while(getExtruderTemp(fd,buf) != 230) {
+		sleep(5);
+	}
+	printf("[done]\n");
+	goHome(fd,buf);
+	serial_write(fd,"G92 Z 0\n");
+	serial_write(fd,"G1 Z 50\n");
+	printf("Place the end of the new filament in the motor, then press [Enter]\n");
+	getchar();
+	printf("Keep pushing the filament in until the gear latches on\n");
+	printf("Extruding...\n");
+	char* halt = "M0\n";
+	printf("Press enter once the filament is extruding in the new color\nPress [Enter] to stop extruding\n");
+	char* extrude[] = {"G1 E 64\n", "G92 E 0\n"};
+	for(int i = 0;i < 20;i++) {
+		if(i % 2 == 0) {
+			serial_write(fd,extrude[0]);
+		} else {
+			serial_write(fd,extrude[1]);
+		}
+	}
+	printf("Switching to cooldown mode...");
+	cooldown(fd);
+	printf("[done]\n");
+	return 0;
+}
+
 void printOutput(int fd, char* buf) {
 	int n;
-	n = serial_read_until(fd,buf,'\n',buf_max,0);
+	n = serial_read_until(fd,buf,'Q',buf_max,0);
 	printf("%s",buf);
 }
 
 int beginShell(int fd, char* buf) {
-	printOutput(fd,buf);
-	printOutput(fd,buf);
-	printOutput(fd,buf);
-	printOutput(fd,buf);
-	printOutput(fd,buf);
-	printOutput(fd,buf);
 	printOutput(fd,buf);
 	return 0;
 }
@@ -227,7 +286,7 @@ int main(int argc, char* argv[]) {
 	serial_flush(fd);
 	memset(buf,0,buf_max);
 	// now we have a connection to the serial device (probably printer in this case)
-	while ((opt = getopt(argc,argv,"adlprs:")) != -1) {
+	while ((opt = getopt(argc,argv,"adflprs:")) != -1) {
 		switch(opt) {
 			case 'a':
 				if(argc <= 4) {
@@ -239,6 +298,9 @@ int main(int argc, char* argv[]) {
 				break;
 			case 'd':
 				goHome(fd,buf);
+				break;
+			case 'f': 
+				switchFilament(fd,buf);
 				break;
 			case 'l':
 				listSD(fd,buf);
@@ -262,12 +324,17 @@ int main(int argc, char* argv[]) {
 					}
 					if(strcmp("/home\n",readstr) == 0) {
 						goHome(fd,buf);
+						serial_read_until(fd,buf,'q',buf_max,timeoutz);
+						goto beginloop;
+					}
+					if(strcmp("/switch\n",readstr) == 0) {
+						switchFilament(fd,buf);
 						goto beginloop;
 					}
 					int n = serial_write(fd,readstr);
 					if (n != 0)
 						printf("error writing\n");
-					serial_read_until(fd,buf,'\n',buf_max,timeout);
+					serial_read_until(fd,buf,'\n',buf_max,timeoutz);
 					printf("%s",buf);
 				}
 				break;
