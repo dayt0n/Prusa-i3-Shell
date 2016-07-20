@@ -141,7 +141,7 @@ int goHome(int fd, char* buf) {
 		}
 	}
 
-	char* Xcmd[] = { "G92 X 0\n", "G1 X 300\n", "G1 X-210\n", "G92 X 0\n" };
+	char* Xcmd[] = { "G92 X 0\n", "G1 X 300\n", "G1 X 10\n", "G92 X 0\n" };
 	for( int i = 0; i < 2; i++) {
 		n = serial_write(fd,Xcmd[i]);
 		if(n != 0) {
