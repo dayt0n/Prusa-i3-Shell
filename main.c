@@ -25,10 +25,94 @@ int check(int fd,int n) {
 	}
 	return -1;
 }
+// Graphics 
+#ifdef _WIN32
+#include <conio.h>
+void clearScreen() {
+	clrscr();
+}
+#else
+void clearScreen() {
+  const char* CLEAR_SCREE_ANSI = "\e[1;1H\e[2J";
+  write(STDOUT_FILENO,CLEAR_SCREE_ANSI,12);
+  printf("\r \b");
+}
+#endif
 
+void emptyBed() {
+	printf("|-----------------|\n");
+	for(int i = 0; i < 10; i++) {
+		printf("|                 |\n");
+	}
+	printf("|-----------------|\n");
+}
+
+void topLeftBed() {
+	printf("|-----------------|\n");
+	printf("| *               |\n");
+	for(int i = 0; i < 9; i++) {
+		printf("|                 |\n");
+	}
+	printf("|-----------------|\n");
+}
+
+void topRightBed() {
+	printf("|-----------------|\n");
+	printf("|               * |\n");
+	for(int i = 0; i < 9; i++) {
+		printf("|                 |\n");
+	}
+	printf("|-----------------|\n");
+}
+
+void middleBed() {
+	printf("|-----------------|\n");
+	for(int i = 0; i < 5; i++) {
+		printf("|                 |\n");
+	}
+	printf("|        *        |\n");
+	for(int i = 0; i < 4; i++) {
+		printf("|                 |\n");
+	}
+	printf("|-----------------|\n");
+}
+
+void bottomLeftBed() {
+	printf("|-----------------|\n");
+	for(int i = 0; i < 9; i++) {
+		printf("|                 |\n");
+	}
+	printf("| *               |\n");
+	printf("|-----------------|\n");
+}
+
+void bottomRightBed() {
+	printf("|-----------------|\n");
+	for(int i = 0; i < 9; i++) {
+		printf("|                 |\n");
+	}
+	printf("|               * |\n");
+	printf("|-----------------|\n");
+}
+
+void allBeds() {
+	printf("|-----------------|\n");
+	printf("| *             * |\n");
+	for(int i = 0; i < 4; i++) {
+		printf("|                 |\n");
+	}
+	printf("|        *        |\n");
+	for(int i = 0; i < 4; i++) {
+		printf("|                 |\n");		
+	}
+	printf("| *             * |\n");
+	printf("|-----------------|\n");
+}
+// end Graphics
 void usage(char* argv) {
 	printf("usage: %s [OPTIONS] [/dev/cu.*]\n",argv);
 	printf("Options:\n\n-a [X/Y/Z] [0-150]\tassign the coordinate of an axis\n");
+	printf("-b\t\t\tstart assisted leveling process\n");
 	printf("-d\t\t\tset axis to home\n");
 	printf("-f\t\t\tswitch filament\n");
 	printf("-l\t\t\tlist all items on SD Card (if present)\n");
@@ -200,6 +284,7 @@ int getExtruderTemp(int fd,char*buf) {
 	ret = atoi(newbuf);
 	return ret;
 }
+
 int cooldown(int fd) {
 	int n = 0;
 	n = serial_write(fd,"M104 S0\n");
@@ -211,6 +296,7 @@ int cooldown(int fd) {
 
 int switchFilament(int fd, char* buf) {
 	int n = 0;
+	float percent = 0.0;
 	printf("Please begin by cutting off the filament at the very top of the extrusion motor, then press [Enter]\n");
 	getchar();
 	printf("Heating to 230 Celcius...\n");
@@ -219,9 +305,11 @@ int switchFilament(int fd, char* buf) {
 	n = serial_write(fd,"M104 S230\n");
 	check(fd,n);
 	while(getExtruderTemp(fd,buf) != 230) {
+		percent = (getExtruderTemp(fd,buf) / 230) * 100;
+		printf("\r%3g",percent);
 		sleep(5);
 	}
-	printf("[done]\n");
+	printf("\n[done]\n");
 	goHome(fd,buf);
 	serial_write(fd,"G92 Z 0\n");
 	serial_write(fd,"G1 Z 50\n");
@@ -256,6 +344,80 @@ int beginShell(int fd, char* buf) {
 	return 0;
 }
 
+
+int assistedLeveling(int fd, char* buf) {
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz); // to reduce wait time for command execution
+	clearScreen();
+	printf("Entering Assisted Leveling mode...\nUse a piece of paper as needed to test distance. Press [Enter] to start\n");
+	emptyBed();
+	serial_write(fd,"G92 Y 300\n");
+	serial_write(fd,"G1 Y 0\n");
+	// set y to be zero
+	serial_write(fd,"G92 Y 0\n");
+	getchar();
+	// begin top left leveling
+	clearScreen();
+	printf("Assisted Leveling\n=================\n");
+	topLeftBed();
+	serial_write(fd,"G1 Y 250\n");
+	serial_write(fd,"G1 X 300\n");
+	serial_write(fd,"G1 X-10\n");
+	serial_write(fd,"G92 Z 300\n");
+	serial_write(fd,"G1 Z 0\n");
+	serial_write(fd,"G92 Z 0\n");
+	printf("Press [Enter] to continue to next location\n");
+	getchar();
+	// end top left leveling
+	// begin top right leveling
+	serial_write(fd,"G1 Z 10\n");
+	clearScreen();
+	printf("Assisted Leveling\n=================\n");
+	topRightBed();
+	serial_write(fd,"G1 X 10\n");
+	serial_write(fd,"M121\n"); // disable endstop detection (for Z). this only works on Marlin, so we're lucky!
+	serial_write(fd,"G1 Z 0\n");
+	printf("Press [Enter] to continue to next location\n");
+	getchar();
+	// end top right leveling
+	// begin bottom left leveling
+	serial_write(fd,"G1 Z 10\n");
+	clearScreen();
+	printf("Assisted Leveling\n=================\n");
+	bottomLeftBed();
+	serial_write(fd,"M120\n"); // re-enable endstop detection (for X)
+	serial_write(fd,"G1 X 300\n");
+	serial_write(fd,"G1 X-10\n");
+	serial_write(fd,"G92 Y 300\n");
+	serial_write(fd,"G1 Y 0\n");
+	serial_write(fd,"M121\n"); // disable endstop detection again (for Z)
+	serial_write(fd,"G1 Z 0\n");
+	printf("Press [Enter] to continue to next location\n");
+	getchar();
+	// end bottom left leveling
+	// begin bottom right leveling
+	serial_write(fd,"G1 Z 10\n");
+	clearScreen();
+	printf("Assisted Leveling\n=================\n");
+	bottomRightBed();
+	serial_write(fd,"G1 X 10\n");
+	serial_write(fd,"G1 Z 0\n");
+	printf("Press [Enter] to go to the next step\n");
+	getchar();
+	printf("Disabling stepper motors for free movement...\n");
+	serial_write(fd,"M84\n"); // disables stepper motors
+	clearScreen();
+	printf("Assisted Leveling\n=================\n");
+	allBeds();
+	printf("Move the X and Y axis around to make sure everything is level, then press [Enter]\n");
+	getchar();
+	serial_write(fd,"M17\n"); // re-enable stepper motors
+	printf("Homing...\n");
+	goHome(fd,buf);
+	printf("Assisted Leveling completed!\n");
+	// end bottom right leveling
+	return 0;
+}
+
 int main(int argc, char* argv[]) {
 	int opt = 0;
 	int fd = -1;
@@ -286,7 +448,7 @@ int main(int argc, char* argv[]) {
 	serial_flush(fd);
 	memset(buf,0,buf_max);
 	// now we have a connection to the serial device (probably printer in this case)
-	while ((opt = getopt(argc,argv,"adflprs:")) != -1) {
+	while ((opt = getopt(argc,argv,"abdflprs:")) != -1) {
 		switch(opt) {
 			case 'a':
 				if(argc <= 4) {
@@ -295,6 +457,9 @@ int main(int argc, char* argv[]) {
 					break;
 				}
 				assignCoordinate(fd,buf,argv[3],argv[4]);
+				break;
+			case 'b':
+				assistedLeveling(fd,buf);
 				break;
 			case 'd':
 				goHome(fd,buf);
