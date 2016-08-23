@@ -110,9 +110,10 @@ void allBeds() {
 }
 // end Graphics
 void usage(char* argv) {
-	printf("usage: %s [OPTIONS] [/dev/cu.*]\n",argv);
+	printf("usage: %s [OPTIONS] [/dev/cu.*] [OPTION PARAMETERS]\n",argv);
 	printf("Options:\n\n-a [X/Y/Z] [0-150]\tassign the coordinate of an axis\n");
 	printf("-b\t\t\tstart assisted leveling process\n");
+	printf("-c [cmd]\t\tsend single command to printer\n");
 	printf("-d\t\t\tset axis to home\n");
 	printf("-f\t\t\tswitch filament\n");
 	printf("-l\t\t\tlist all items on SD Card (if present)\n");
@@ -350,6 +351,7 @@ int assistedLeveling(int fd, char* buf) {
 	clearScreen();
 	printf("Entering Assisted Leveling mode...\nUse a piece of paper as needed to test distance. Press [Enter] to start\n");
 	emptyBed();
+	serial_write(fd,"G1 Z 20\n");
 	serial_write(fd,"G92 Y 300\n");
 	serial_write(fd,"G1 Y 0\n");
 	// set y to be zero
@@ -359,9 +361,10 @@ int assistedLeveling(int fd, char* buf) {
 	clearScreen();
 	printf("Assisted Leveling\n=================\n");
 	topLeftBed();
-	serial_write(fd,"G1 Y 250\n");
+	serial_write(fd,"G1 Y 200\n");
 	serial_write(fd,"G1 X 300\n");
-	serial_write(fd,"G1 X-10\n");
+	serial_write(fd,"G92 X 210\n");
+	serial_write(fd,"G1 X 200\n"); // problems here
 	serial_write(fd,"G92 Z 300\n");
 	serial_write(fd,"G1 Z 0\n");
 	serial_write(fd,"G92 Z 0\n");
@@ -374,7 +377,7 @@ int assistedLeveling(int fd, char* buf) {
 	printf("Assisted Leveling\n=================\n");
 	topRightBed();
 	serial_write(fd,"G1 X 10\n");
-	serial_write(fd,"M121\n"); // disable endstop detection (for Z). this only works on Marlin, so we're lucky!
+	serial_write(fd,"M120\n"); // disable endstop detection (for Z). this only works on Marlin, so we're lucky!
 	serial_write(fd,"G1 Z 0\n");
 	printf("Press [Enter] to continue to next location\n");
 	getchar();
@@ -384,12 +387,13 @@ int assistedLeveling(int fd, char* buf) {
 	clearScreen();
 	printf("Assisted Leveling\n=================\n");
 	bottomLeftBed();
-	serial_write(fd,"M120\n"); // re-enable endstop detection (for X)
+	serial_write(fd,"M121\n"); // re-enable endstop detection (for X)
 	serial_write(fd,"G1 X 300\n");
-	serial_write(fd,"G1 X-10\n");
-	serial_write(fd,"G92 Y 300\n");
-	serial_write(fd,"G1 Y 0\n");
-	serial_write(fd,"M121\n"); // disable endstop detection again (for Z)
+	serial_write(fd,"G92 X 210\n");
+	serial_write(fd,"G1 X 200\n");
+	serial_write(fd,"G92 Y 200\n");
+	serial_write(fd,"G1 Y 50\n");
+	serial_write(fd,"M120\n"); // disable endstop detection again (for Z)
 	serial_write(fd,"G1 Z 0\n");
 	printf("Press [Enter] to continue to next location\n");
 	getchar();
@@ -399,22 +403,29 @@ int assistedLeveling(int fd, char* buf) {
 	clearScreen();
 	printf("Assisted Leveling\n=================\n");
 	bottomRightBed();
-	serial_write(fd,"G1 X 10\n");
+	serial_write(fd,"G1 X-10\n");
 	serial_write(fd,"G1 Z 0\n");
 	printf("Press [Enter] to go to the next step\n");
 	getchar();
 	printf("Disabling stepper motors for free movement...\n");
 	serial_write(fd,"M84\n"); // disables stepper motors
+	serial_write(fd,"M121\n"); // re-enable endstops
 	clearScreen();
 	printf("Assisted Leveling\n=================\n");
 	allBeds();
 	printf("Move the X and Y axis around to make sure everything is level, then press [Enter]\n");
 	getchar();
 	serial_write(fd,"M17\n"); // re-enable stepper motors
-	printf("Homing...\n");
-	goHome(fd,buf);
+	serial_write(fd,"G1 Z 20\n");
 	printf("Assisted Leveling completed!\n");
 	// end bottom right leveling
+	return 0;
+}
+
+int sendcmd(int fd, char* buf,char* cmd) {
+	serial_read_until(fd,buf,'\n',buf_max,timeoutz); // to reduce wait time for command execution
+	char* realCMD = addVars(cmd,"\n");
+	serial_write(fd,realCMD);
 	return 0;
 }
 
@@ -448,7 +459,7 @@ int main(int argc, char* argv[]) {
 	serial_flush(fd);
 	memset(buf,0,buf_max);
 	// now we have a connection to the serial device (probably printer in this case)
-	while ((opt = getopt(argc,argv,"abdflprs:")) != -1) {
+	while ((opt = getopt(argc,argv,"abcdflprs:")) != -1) {
 		switch(opt) {
 			case 'a':
 				if(argc <= 4) {
@@ -460,6 +471,9 @@ int main(int argc, char* argv[]) {
 				break;
 			case 'b':
 				assistedLeveling(fd,buf);
+				break;
+			case 'c':
+				sendcmd(fd,buf,argv[3]);
 				break;
 			case 'd':
 				goHome(fd,buf);
